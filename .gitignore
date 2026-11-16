@@ -1,0 +1,30 @@
+# Frontend / Node / Vite
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Python / Sidecar
+.venv/
+sidecar/.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local tool caches & ML artifacts
+.cache/
+.stemsplit/
+*.ckpt
+*.th
+*.onnx
+
+# Environment & OS files
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*.log
