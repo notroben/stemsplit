@@ -48,6 +48,14 @@ export interface JobsListResponse {
   total_cache_bytes: number;
 }
 
+export interface LanStatus {
+  enabled: boolean;
+  port: number;
+  lan_ip: string;
+  url: string | null;
+  qr_svg: string | null;
+}
+
 export type SeparationStage =
   | "queued"
   | "probing"
@@ -273,4 +281,29 @@ export async function purgeAllJobs(
     throw new Error(await extractErrorDetail(response, "Failed to purge cache"));
   }
   return response.json() as Promise<{ total_cache_bytes: number }>;
+}
+
+export async function getLanStatus(baseUrl?: string): Promise<LanStatus> {
+  const url = baseUrl ?? (await getSidecarUrl());
+  const response = await fetch(`${url}/lan/status`);
+  if (!response.ok) {
+    throw new Error(await extractErrorDetail(response, "Failed to fetch LAN status"));
+  }
+  return response.json() as Promise<LanStatus>;
+}
+
+export async function toggleLanMode(
+  enabled: boolean,
+  baseUrl?: string
+): Promise<LanStatus> {
+  const url = baseUrl ?? (await getSidecarUrl());
+  const response = await fetch(`${url}/lan/toggle`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorDetail(response, "Failed to toggle LAN companion mode"));
+  }
+  return response.json() as Promise<LanStatus>;
 }

@@ -58,13 +58,14 @@
 
 ## 0. Status
 
-**Status:** ✅ **Phases 0–3 complete and verified (2026-11-16) · Complete local desktop application shipped (Phase 4 LAN Mobile Companion optional).**
+**Status:** ✅ **Phases 0–4 complete and verified (2026-11-16) · Full desktop app + LAN Mobile Companion shipped.**
 Python 3.11 CUDA sidecar (`torch 2.5.1+cu121`, `audio-separator 0.48.0`, FFmpeg 9.0.2), Tauri v2
 desktop shell (`stemsplit.exe` + `open_folder`), drag-and-drop / `ffprobe` ingest (`POST /probe`),
 `BS-RoFormer` / `HTDemucs` separation pipeline (`POST /separate`), live `TqdmToSSE` progress
 streaming (`GET /jobs/{id}/events`), sample-accurate Web Audio DAW mixer (`MixerView.tsx`),
-FFmpeg custom mixdown / stem export (`POST /export`), and collapsible job history & cache drawer
-(`HistorySidebar.tsx`, `GET /jobs`, `DELETE /jobs`) are built and verified.
+FFmpeg custom mixdown / stem export (`POST /export`), collapsible job history & cache drawer
+(`HistorySidebar.tsx`, `GET /jobs`, `DELETE /jobs`), and LAN Mobile Companion Mode
+(`LanModal.tsx`, `0.0.0.0:7860` auxiliary listener, QR SVG, mobile web UI) are built and verified.
 
 - **Phases 0–2 are the target deliverable** — a complete, self-contained desktop application that
   splits any local song into isolated stems, lets the user solo/mute/mix them in real time, and
@@ -577,7 +578,7 @@ backing track:
 >   startup when cached jobs exist, toggles it via the header `History (N)` button, and guards
 >   **"Bersihkan Semua Cache"** behind a two-step inline confirmation (`Yakin Hapus Semua?` / `Batal`).
 
-### 6.6 (F) LAN Mobile Companion Mode — Phase 4 ⏸ Optional
+### 6.6 (F) LAN Mobile Companion Mode — Phase 4 ✅ Complete
 
 Because the original use case started on a phone, Phase 4 brings that capability back **without**
 paying for cloud GPUs:
@@ -591,6 +592,18 @@ paying for cloud GPUs:
   - Watch the PC's GPU split it in 25 seconds
   - Toggle checkboxes for which stems to keep (e.g., uncheck *Drums* and *Guitar*)
   - Tap **Download Mix** to save the resulting `.mp3` straight back to the iPhone.
+
+> **As built (2026-11-16):**
+> - **Auxiliary `uvicorn.Server` background listener:** `LanServerManager` in `sidecar/mobile_ui.py`
+>   runs a secondary `uvicorn.Server` on `0.0.0.0:7860` (falling back to an OS-assigned port if
+>   `7860` is occupied) in a daemon thread with `server.install_signal_handlers = lambda: None` so
+>   toggling it on/off via `POST /lan/toggle` never disrupts the primary `127.0.0.1` desktop IPC.
+> - **Streaming mobile upload & MP3 download endpoints:** `POST /mobile/upload` streams raw file
+>   bytes directly to `~/.stemsplit/uploads/` (stored on `D:`), avoiding multipart memory spikes on
+>   large tracks; `POST /mobile/jobs/{id}/mix` and `GET /mobile/jobs/{id}/stem/{stem_id}` encode
+>   `320 kbps` CBR `.mp3` responses via `FileResponse` for direct saving on iPhone/Android.
+> - **Inline SVG QR code:** Generated locally via `qrcode` (`SvgPathImage`) and displayed inside
+>   `LanModal.tsx` with one-click link copy.
 
 ---
 
@@ -740,4 +753,4 @@ All initial architecture and UX decisions below are resolved; Phase 0 is cleared
 
 ---
 
-*End of document. Phases 0–3 complete and verified (2026-11-16); desktop application ready (Phase 4 LAN Mobile Companion optional).*
+*End of document. Phases 0–4 complete and verified (2026-11-16).*

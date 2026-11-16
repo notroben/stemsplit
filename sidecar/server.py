@@ -7,19 +7,24 @@ import asyncio
 import ctypes
 import json
 import os
+from pathlib import Path
 import threading
 import time
 from typing import Any, Literal
+from uuid import uuid4
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from ffmpeg_utils import check_ffmpeg, ensure_ffmpeg_in_path, probe_audio
+from mobile_ui import MOBILE_HTML, LanServerManager
 from worker import (
+    JOBS_DIR,
     PRESETS,
+    WORKSPACE_DIR,
     JobManager,
     ModelManager,
     delete_all_jobs,
@@ -45,6 +50,7 @@ app.add_middleware(
 
 model_manager = ModelManager()
 job_manager = JobManager(model_manager)
+lan_manager = LanServerManager()
 
 
 class ProbeRequest(BaseModel):
@@ -69,6 +75,14 @@ class ExportRequest(BaseModel):
     format: Literal["mp3", "wav", "flac"] = "mp3"
     stems: list[ExportStemState] = []
     mode: Literal["custom_mix", "single_stem", "all_stems_folder", "all_stems_zip"] = "custom_mix"
+
+
+class LanToggleRequest(BaseModel):
+    enabled: bool
+
+
+class MobileMixRequest(BaseModel):
+    stems: list[ExportStemState] = []
 
 
 def _is_parent_alive(parent_pid: int) -> bool:
@@ -239,6 +253,138 @@ def export_mix(req: ExportRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/lan/status")
+def lan_status() -> dict[str, Any]:
+    """Return current LAN Companion listener status, URL, and inline QR SVG."""
+    return lan_manager.status()
+
+
+@app.post("/lan/toggle")
+def lan_toggle(req: LanToggleRequest) -> dict[str, Any]:
+    """Start or stop the auxiliary 0.0.0.0 LAN listener for mobile companion access."""
+    try:
+        if req.enabled:
+            return lan_manager.start(app)
+        return lan_manager.stop()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/mobile", response_class=HTMLResponse)
+def mobile_page() -> HTMLResponse:
+    """Serve the lightweight mobile companion UI over the local Wi-Fi listener."""
+    return HTMLResponse(content=MOBILE_HTML)
+
+
+@app.post("/mobile/upload", status_code=202)
+async def mobile_upload(
+    request: Request,
+    preset_id: str = "roformer_2stem",
+    filename: str = "upload.mp3",
+) -> dict[str, str]:
+    """Stream an uploaded audio/video file from a phone and start GPU separation."""
+    if preset_id not in PRESETS:
+        raise HTTPException(status_code=400, detail=f"Invalid preset_id: {preset_id}")
+
+    base = os.path.basename(filename).strip()
+    safe_name = "".join("_" if c in '<>:"/\\|?*' else c for c in base).strip(" .") or "upload.audio"
+    uploads_dir = WORKSPACE_DIR / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = uploads_dir / f"{uuid4().hex}_{safe_name}"
+
+    total_bytes = 0
+    try:
+        with upload_path.open("wb") as out_file:
+            async for chunk in request.stream():
+                if not chunk:
+                    continue
+                out_file.write(chunk)
+                total_bytes += len(chunk)
+    except Exception as exc:
+        upload_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to receive upload: {exc}") from exc
+
+    if total_bytes == 0:
+        upload_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    loop = asyncio.get_running_loop()
+    try:
+        job_id = job_manager.start_job(upload_path, preset_id, loop)
+    except Exception as exc:
+        upload_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"job_id": job_id}
+
+
+@app.post("/mobile/jobs/{job_id}/mix")
+def mobile_download_mix(job_id: str, req: MobileMixRequest) -> FileResponse:
+    """Render and stream a custom MP3 mixdown directly back to a mobile browser."""
+    manifest = get_job_manifest(job_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"Job manifest not found: {job_id}")
+
+    target_path = JOBS_DIR / job_id / "mobile_export.mp3"
+    try:
+        result = export_job(
+            job_id=job_id,
+            target_path=str(target_path),
+            fmt="mp3",
+            stems_state=[s.model_dump() for s in req.stems],
+            mode="custom_mix",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    base_name = Path(manifest.get("source_name", job_id)).stem
+    return FileResponse(
+        path=result["saved_path"],
+        media_type="audio/mpeg",
+        filename=f"{base_name} (StemSplit Mix).mp3",
+    )
+
+
+@app.get("/mobile/jobs/{job_id}/stem/{stem_id}")
+def mobile_download_stem(job_id: str, stem_id: str) -> FileResponse:
+    """Encode and stream a single separated stem as 320 kbps MP3 to a mobile browser."""
+    manifest = get_job_manifest(job_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"Job manifest not found: {job_id}")
+
+    stem_meta = next((s for s in manifest.get("stems", []) if s["id"] == stem_id), None)
+    if stem_meta is None:
+        raise HTTPException(status_code=404, detail=f"Stem '{stem_id}' not found in job '{job_id}'")
+
+    target_path = JOBS_DIR / job_id / f"mobile_{stem_id}.mp3"
+    try:
+        result = export_job(
+            job_id=job_id,
+            target_path=str(target_path),
+            fmt="mp3",
+            stems_state=[{"id": stem_id, "volume": 1.0, "muted": False, "soloed": False}],
+            mode="single_stem",
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    base_name = Path(manifest.get("source_name", job_id)).stem
+    return FileResponse(
+        path=result["saved_path"],
+        media_type="audio/mpeg",
+        filename=f"{base_name} - {stem_meta['label']}.mp3",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="StemSplit Python FastAPI sidecar")
     parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
@@ -257,7 +403,10 @@ def main() -> None:
     if args.parent_pid is not None:
         _start_parent_watchdog(args.parent_pid)
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    try:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    finally:
+        lan_manager.stop()
 
 
 if __name__ == "__main__":

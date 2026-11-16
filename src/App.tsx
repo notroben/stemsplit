@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, AudioWaveform, History, RefreshCw } from "lucide-react";
+import { AlertTriangle, AudioWaveform, History, RefreshCw, Smartphone } from "lucide-react";
 import { DropZone } from "./components/DropZone";
 import { HistorySidebar } from "./components/HistorySidebar";
+import { LanModal } from "./components/LanModal";
 import { MixerView } from "./components/MixerView";
 import { ProgressPanel } from "./components/ProgressPanel";
 import {
@@ -10,13 +11,16 @@ import {
   getHealth,
   getJobManifest,
   getJobs,
+  getLanStatus,
   getModels,
   getSidecarUrl,
   purgeAllJobs,
   startSeparation,
   subscribeToJobEvents,
+  toggleLanMode,
   type HealthResponse,
   type JobManifest,
+  type LanStatus,
   type ModelPreset,
   type SeparationEvent,
 } from "./lib/sidecar";
@@ -47,6 +51,11 @@ export default function App() {
   const [totalCacheBytes, setTotalCacheBytes] = useState<number>(0);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
 
+  const [lanStatus, setLanStatus] = useState<LanStatus | null>(null);
+  const [lanModalOpen, setLanModalOpen] = useState<boolean>(false);
+  const [lanBusy, setLanBusy] = useState<boolean>(false);
+  const [lanError, setLanError] = useState<string | null>(null);
+
   const [view, setView] = useState<ViewState>("idle");
   const [activeJob, setActiveJob] = useState<ActiveJobInfo | null>(null);
   const [jobEvent, setJobEvent] = useState<SeparationEvent | null>(null);
@@ -71,15 +80,17 @@ export default function App() {
     const attempts = withBootRetry ? MAX_BOOT_ATTEMPTS : 1;
     for (let i = 0; i < attempts; i += 1) {
       try {
-        const [healthData, modelList, jobsData] = await Promise.all([
+        const [healthData, modelList, jobsData, lanData] = await Promise.all([
           getHealth(url),
           getModels(url),
           getJobs(url),
+          getLanStatus(url),
         ]);
         setHealth(healthData);
         setModels(modelList);
         setJobs(jobsData.jobs);
         setTotalCacheBytes(jobsData.total_cache_bytes);
+        setLanStatus(lanData);
         if (withBootRetry && jobsData.jobs.length > 0) {
           setHistoryOpen(true);
         }
@@ -249,6 +260,44 @@ export default function App() {
     }
   }, [sidecarUrl, view]);
 
+  const handleToggleLanMode = useCallback(
+    async (enabled: boolean) => {
+      setLanBusy(true);
+      setLanError(null);
+      try {
+        const nextStatus = await toggleLanMode(enabled, sidecarUrl || undefined);
+        setLanStatus(nextStatus);
+      } catch (err) {
+        setLanError(
+          err instanceof Error ? err.message : "Failed to toggle LAN companion mode."
+        );
+      } finally {
+        setLanBusy(false);
+      }
+    },
+    [sidecarUrl]
+  );
+
+  const handleHeaderLanClick = useCallback(() => {
+    setLanError(null);
+    setLanModalOpen(true);
+    if (!lanStatus?.enabled && connection === "online" && !lanBusy) {
+      void handleToggleLanMode(true);
+    }
+  }, [connection, handleToggleLanMode, lanBusy, lanStatus?.enabled]);
+
+  const closeLanModal = useCallback(() => {
+    setLanModalOpen(false);
+    if (connection === "online") {
+      void getJobs(sidecarUrl || undefined)
+        .then((jobsData) => {
+          setJobs(jobsData.jobs);
+          setTotalCacheBytes(jobsData.total_cache_bytes);
+        })
+        .catch(() => {});
+    }
+  }, [connection, sidecarUrl]);
+
   const renderHardwareBadge = () => {
     if (connection === "connecting") {
       return (
@@ -319,6 +368,16 @@ export default function App() {
           >
             <History size={14} />
             <span>History ({jobs.length})</span>
+          </button>
+          <button
+            type="button"
+            className={`studio-btn lan-toggle-btn ${lanStatus?.enabled ? "active" : ""}`}
+            disabled={connection !== "online"}
+            onClick={handleHeaderLanClick}
+            title="LAN Mobile Companion Mode (Wi-Fi QR)"
+          >
+            <Smartphone size={14} />
+            <span>{lanStatus?.enabled ? "Mode HP: ON" : "Mode HP (Wi-Fi)"}</span>
           </button>
           {renderHardwareBadge()}
           <button
@@ -476,6 +535,16 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {lanModalOpen && (
+        <LanModal
+          status={lanStatus}
+          busy={lanBusy}
+          error={lanError}
+          onToggle={(enabled) => void handleToggleLanMode(enabled)}
+          onClose={closeLanModal}
+        />
+      )}
     </div>
   );
 }
