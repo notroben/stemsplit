@@ -208,13 +208,16 @@ def remove_job(job_id: str) -> dict[str, Any]:
     result = delete_job(job_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    job_manager.forget_job(job_id)
     return result
 
 
 @app.delete("/jobs")
 def remove_all_jobs() -> dict[str, Any]:
     """Purge all cached job folders."""
-    return delete_all_jobs()
+    result = delete_all_jobs()
+    job_manager.forget_all_jobs()
+    return result
 
 
 @app.post("/export")

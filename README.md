@@ -103,7 +103,7 @@ You can also run and probe the FastAPI backend independently of Tauri:
 | **Phase 0 — Foundation** | Python 3.11 CUDA venv, FFmpeg check, FastAPI `/health` + `/models`, Tauri v2 spawn & tree-kill lifecycle | ✅ Complete & Verified |
 | **Phase 1 — Separation Core** | Drag-and-drop ingest, `ffprobe` pre-flight, `original.wav` normalization, `Separator` pipeline & SSE progress | ✅ Complete & Verified |
 | **Phase 2 — DAW Mixer & Export** | Synchronized Web Audio multi-track player, `<canvas>` waveforms, Solo/Mute/A-B Original, FFmpeg export | ✅ Complete & Verified |
-| **Phase 3 — History & Cache** | Collapsible history drawer, instant job reload, cache usage indicator & purge | ⏳ Next |
+| **Phase 3 — History & Cache** | Collapsible history drawer, instant job reload, cache usage indicator & purge | ✅ Complete & Verified |
 | **Phase 4 — LAN Mobile Mode** | Optional Wi-Fi `0.0.0.0` listener + QR code for mobile upload/download | Optional |
 
 ---

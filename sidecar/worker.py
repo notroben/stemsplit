@@ -313,7 +313,6 @@ def list_jobs() -> dict[str, Any]:
     for job_dir in JOBS_DIR.iterdir():
         if not job_dir.is_dir():
             continue
-        cache_bytes += _directory_size_bytes(job_dir)
         manifest_path = job_dir / "manifest.json"
         if not manifest_path.is_file():
             continue
@@ -321,6 +320,9 @@ def list_jobs() -> dict[str, Any]:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        job_bytes = _directory_size_bytes(job_dir)
+        cache_bytes += job_bytes
+        manifest["size_bytes"] = job_bytes
         jobs.append(manifest)
 
     jobs.sort(key=lambda item: item.get("created_at", ""), reverse=True)
@@ -528,6 +530,18 @@ class JobManager:
             return False
         record.cancel_event.set()
         return True
+
+    def forget_job(self, job_id: str) -> None:
+        with self._jobs_lock:
+            record = self._jobs.get(job_id)
+            if record is not None and record.terminal:
+                self._jobs.pop(job_id, None)
+
+    def forget_all_jobs(self) -> None:
+        with self._jobs_lock:
+            self._jobs = {
+                jid: rec for jid, rec in self._jobs.items() if not rec.terminal
+            }
 
     def _emit(self, record: JobRecord, payload: dict[str, Any]) -> None:
         stage = payload.get("stage", "")

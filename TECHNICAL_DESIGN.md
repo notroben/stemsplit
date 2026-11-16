@@ -58,12 +58,13 @@
 
 ## 0. Status
 
-**Status:** ✅ **Phases 0–2 complete and verified (2026-11-16) · Target desktop deliverable ready (Phase 3 History & Cache next).**
+**Status:** ✅ **Phases 0–3 complete and verified (2026-11-16) · Complete local desktop application shipped (Phase 4 LAN Mobile Companion optional).**
 Python 3.11 CUDA sidecar (`torch 2.5.1+cu121`, `audio-separator 0.48.0`, FFmpeg 9.0.2), Tauri v2
 desktop shell (`stemsplit.exe` + `open_folder`), drag-and-drop / `ffprobe` ingest (`POST /probe`),
 `BS-RoFormer` / `HTDemucs` separation pipeline (`POST /separate`), live `TqdmToSSE` progress
-streaming (`GET /jobs/{id}/events`), sample-accurate Web Audio DAW mixer (`MixerView.tsx`), and
-FFmpeg custom mixdown / stem export (`POST /export`) are built and verified.
+streaming (`GET /jobs/{id}/events`), sample-accurate Web Audio DAW mixer (`MixerView.tsx`),
+FFmpeg custom mixdown / stem export (`POST /export`), and collapsible job history & cache drawer
+(`HistorySidebar.tsx`, `GET /jobs`, `DELETE /jobs`) are built and verified.
 
 - **Phases 0–2 are the target deliverable** — a complete, self-contained desktop application that
   splits any local song into isolated stems, lets the user solo/mute/mix them in real time, and
@@ -567,6 +568,15 @@ backing track:
 - Footer of the drawer shows total disk usage (e.g., `Cache: 1.4 GB across 8 songs`) with a
   per-song delete icon and a **"Bersihkan Semua Cache"** button.
 
+> **As built (2026-11-16):**
+> - **Per-job byte accounting & in-memory eviction:** `list_jobs()` in `sidecar/worker.py` attaches
+>   `size_bytes` onto each manifest summary and sums only valid job folders into `total_cache_bytes`.
+>   `DELETE /jobs/{id}` and `DELETE /jobs` also call `job_manager.forget_job()` / `forget_all_jobs()`
+>   to evict completed records from memory alongside deleting disk folders.
+> - **Auto-open drawer & safe purge confirmation:** `App.tsx` opens `HistorySidebar` automatically on
+>   startup when cached jobs exist, toggles it via the header `History (N)` button, and guards
+>   **"Bersihkan Semua Cache"** behind a two-step inline confirmation (`Yakin Hapus Semua?` / `Batal`).
+
 ### 6.6 (F) LAN Mobile Companion Mode — Phase 4 ⏸ Optional
 
 Because the original use case started on a phone, Phase 4 brings that capability back **without**
@@ -730,4 +740,4 @@ All initial architecture and UX decisions below are resolved; Phase 0 is cleared
 
 ---
 
-*End of document. Phases 0–2 complete and verified (2026-11-16); Phase 3 cleared to start.*
+*End of document. Phases 0–3 complete and verified (2026-11-16); desktop application ready (Phase 4 LAN Mobile Companion optional).*

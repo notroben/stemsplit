@@ -40,6 +40,12 @@ export interface JobManifest {
   status: string;
   original_path: string;
   stems: StemTrack[];
+  size_bytes?: number;
+}
+
+export interface JobsListResponse {
+  jobs: JobManifest[];
+  total_cache_bytes: number;
 }
 
 export type SeparationStage =
@@ -231,4 +237,40 @@ export async function exportMix(
     throw new Error(await extractErrorDetail(response, "Export failed"));
   }
   return response.json() as Promise<ExportResponse>;
+}
+
+export async function getJobs(baseUrl?: string): Promise<JobsListResponse> {
+  const url = baseUrl ?? (await getSidecarUrl());
+  const response = await fetch(`${url}/jobs`);
+  if (!response.ok) {
+    throw new Error(await extractErrorDetail(response, "Failed to load job history"));
+  }
+  return response.json() as Promise<JobsListResponse>;
+}
+
+export async function deleteJob(
+  jobId: string,
+  baseUrl?: string
+): Promise<{ deleted_id: string; total_cache_bytes: number }> {
+  const url = baseUrl ?? (await getSidecarUrl());
+  const response = await fetch(`${url}/jobs/${encodeURIComponent(jobId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorDetail(response, "Failed to delete job"));
+  }
+  return response.json() as Promise<{ deleted_id: string; total_cache_bytes: number }>;
+}
+
+export async function purgeAllJobs(
+  baseUrl?: string
+): Promise<{ total_cache_bytes: number }> {
+  const url = baseUrl ?? (await getSidecarUrl());
+  const response = await fetch(`${url}/jobs`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorDetail(response, "Failed to purge cache"));
+  }
+  return response.json() as Promise<{ total_cache_bytes: number }>;
 }
