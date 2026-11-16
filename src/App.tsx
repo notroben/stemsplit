@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AlertTriangle,
-  AudioWaveform,
-  CheckCircle2,
-  FolderOpen,
-  RefreshCw,
-  RotateCcw,
-} from "lucide-react";
-import { DropZone, formatDuration } from "./components/DropZone";
+import { AlertTriangle, AudioWaveform, RefreshCw } from "lucide-react";
+import { DropZone } from "./components/DropZone";
+import { MixerView } from "./components/MixerView";
 import { ProgressPanel } from "./components/ProgressPanel";
 import {
   cancelSeparation,
@@ -15,7 +9,6 @@ import {
   getJobManifest,
   getModels,
   getSidecarUrl,
-  openJobFolder,
   startSeparation,
   subscribeToJobEvents,
   type HealthResponse,
@@ -25,7 +18,7 @@ import {
 } from "./lib/sidecar";
 
 type ConnectionState = "connecting" | "online" | "offline";
-type ViewState = "idle" | "processing" | "completed";
+type ViewState = "idle" | "processing" | "mixer";
 
 interface ActiveJobInfo {
   jobId: string;
@@ -50,7 +43,7 @@ export default function App() {
   const [activeJob, setActiveJob] = useState<ActiveJobInfo | null>(null);
   const [jobEvent, setJobEvent] = useState<SeparationEvent | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const [completedManifest, setCompletedManifest] = useState<JobManifest | null>(null);
+  const [activeManifest, setActiveManifest] = useState<JobManifest | null>(null);
   const [jobNotice, setJobNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null);
   const [lastAttempt, setLastAttempt] = useState<{
     filePath: string;
@@ -103,7 +96,7 @@ export default function App() {
       unsubscribeRef.current = null;
 
       setJobNotice(null);
-      setCompletedManifest(null);
+      setActiveManifest(null);
       setCancelling(false);
       setLastAttempt({ filePath, presetId, sourceName });
       setJobEvent({ stage: "queued", percent: 0, message: "Queued for separation…" });
@@ -124,9 +117,9 @@ export default function App() {
               void Promise.all([getJobManifest(job_id, url), getModels(url)])
                 .then(([manifest, updatedModels]) => {
                   setModels(updatedModels);
-                  setCompletedManifest(manifest);
+                  setActiveManifest(manifest);
                   setActiveJob(null);
-                  setView("completed");
+                  setView("mixer");
                 })
                 .catch((err) => {
                   setActiveJob(null);
@@ -185,20 +178,6 @@ export default function App() {
       });
     }
   }, [activeJob, cancelling, sidecarUrl]);
-
-  const handleOpenFolder = useCallback(async () => {
-    if (!completedManifest) {
-      return;
-    }
-    try {
-      await openJobFolder(completedManifest.original_path);
-    } catch (err) {
-      setJobNotice({
-        kind: "error",
-        text: err instanceof Error ? err.message : "Failed to open output folder.",
-      });
-    }
-  }, [completedManifest]);
 
   const renderHardwareBadge = () => {
     if (connection === "connecting") {
@@ -275,8 +254,8 @@ export default function App() {
         </div>
       </header>
 
-      <main className="studio-main">
-        {connection === "online" && health && !health.ffmpeg_ok && (
+      <main className={`studio-main ${view === "mixer" ? "mixer-mode" : ""}`}>
+        {connection === "online" && health && !health.ffmpeg_ok && view !== "mixer" && (
           <section className="preflight-banner" role="alert">
             <div className="preflight-banner-body">
               <AlertTriangle size={18} color="#f43f5e" style={{ flexShrink: 0, marginTop: 2 }} />
@@ -294,7 +273,7 @@ export default function App() {
           </section>
         )}
 
-        {connection === "offline" && (
+        {connection === "offline" && view !== "mixer" && (
           <section className="preflight-banner" role="alert">
             <div className="preflight-banner-body">
               <AlertTriangle size={18} color="#f43f5e" style={{ flexShrink: 0, marginTop: 2 }} />
@@ -393,66 +372,15 @@ export default function App() {
           />
         )}
 
-        {view === "completed" && completedManifest && (
-          <section className="workspace-card">
-            <div className="completed-header">
-              <div className="completed-title-group">
-                <div className="completed-icon">
-                  <CheckCircle2 size={22} />
-                </div>
-                <div>
-                  <h1 className="completed-song-name" title={completedManifest.source_name}>
-                    {completedManifest.source_name}
-                  </h1>
-                  <p className="completed-meta">
-                    <span>{formatDuration(completedManifest.duration_sec)}</span>
-                    <span>·</span>
-                    <span>{completedManifest.stems.length} Stems</span>
-                    <span>·</span>
-                    <span>{completedManifest.sample_rate} Hz WAV</span>
-                  </p>
-                </div>
-              </div>
-              <div className="completed-actions">
-                <button
-                  type="button"
-                  className="primary-action-btn"
-                  onClick={() => void handleOpenFolder()}
-                >
-                  <FolderOpen size={15} />
-                  <span>Open Output Folder</span>
-                </button>
-                <button
-                  type="button"
-                  className="studio-btn"
-                  onClick={() => {
-                    setCompletedManifest(null);
-                    setView("idle");
-                  }}
-                >
-                  <RotateCcw size={14} />
-                  <span>Split Another</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="stem-output-list">
-              {completedManifest.stems.map((stem) => {
-                const fileName = stem.path.split("/").pop() ?? stem.path;
-                return (
-                  <div key={stem.id} className="stem-output-row">
-                    <div className="stem-output-left">
-                      <span className="stem-color-dot" style={{ backgroundColor: stem.color }} />
-                      <span className="stem-output-label">{stem.label}</span>
-                    </div>
-                    <span className="stem-output-file" title={stem.path}>
-                      {fileName}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+        {view === "mixer" && activeManifest && (
+          <MixerView
+            manifest={activeManifest}
+            sidecarUrl={sidecarUrl}
+            onBack={() => {
+              setActiveManifest(null);
+              setView("idle");
+            }}
+          />
         )}
       </main>
     </div>

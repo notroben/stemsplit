@@ -9,7 +9,7 @@ import json
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -25,6 +25,7 @@ from worker import (
     delete_all_jobs,
     delete_job,
     ensure_workspace_dirs,
+    export_job,
     get_hardware_info,
     get_job_manifest,
     list_jobs,
@@ -53,6 +54,21 @@ class ProbeRequest(BaseModel):
 class SeparateRequest(BaseModel):
     file_path: str
     preset_id: str
+
+
+class ExportStemState(BaseModel):
+    id: str
+    volume: float = 1.0
+    muted: bool = False
+    soloed: bool = False
+
+
+class ExportRequest(BaseModel):
+    job_id: str
+    target_path: str
+    format: Literal["mp3", "wav", "flac"] = "mp3"
+    stems: list[ExportStemState] = []
+    mode: Literal["custom_mix", "single_stem", "all_stems_folder", "all_stems_zip"] = "custom_mix"
 
 
 def _is_parent_alive(parent_pid: int) -> bool:
@@ -199,6 +215,25 @@ def remove_job(job_id: str) -> dict[str, Any]:
 def remove_all_jobs() -> dict[str, Any]:
     """Purge all cached job folders."""
     return delete_all_jobs()
+
+
+@app.post("/export")
+def export_mix(req: ExportRequest) -> dict[str, Any]:
+    """Render a custom stem mixdown, single stem, or batch stem export via FFmpeg."""
+    try:
+        return export_job(
+            job_id=req.job_id,
+            target_path=req.target_path,
+            fmt=req.format,
+            stems_state=[s.model_dump() for s in req.stems],
+            mode=req.mode,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 def main() -> None:

@@ -58,11 +58,12 @@
 
 ## 0. Status
 
-**Status:** ✅ **Phase 0 & Phase 1 complete and verified (2026-11-16) · Phase 2 cleared to start.**
+**Status:** ✅ **Phases 0–2 complete and verified (2026-11-16) · Target desktop deliverable ready (Phase 3 History & Cache next).**
 Python 3.11 CUDA sidecar (`torch 2.5.1+cu121`, `audio-separator 0.48.0`, FFmpeg 9.0.2), Tauri v2
 desktop shell (`stemsplit.exe` + `open_folder`), drag-and-drop / `ffprobe` ingest (`POST /probe`),
-`BS-RoFormer` / `HTDemucs` separation pipeline (`POST /separate`), and live `TqdmToSSE` progress
-streaming (`GET /jobs/{id}/events`) are built and verified.
+`BS-RoFormer` / `HTDemucs` separation pipeline (`POST /separate`), live `TqdmToSSE` progress
+streaming (`GET /jobs/{id}/events`), sample-accurate Web Audio DAW mixer (`MixerView.tsx`), and
+FFmpeg custom mixdown / stem export (`POST /export`) are built and verified.
 
 - **Phases 0–2 are the target deliverable** — a complete, self-contained desktop application that
   splits any local song into isolated stems, lets the user solo/mute/mix them in real time, and
@@ -521,6 +522,16 @@ Once separation finishes, the screen transitions into the **Mixer View** — mod
 | **Waveform rendering** | On load, a single pass computes peak min/max buckets (e.g., 1,200 bars across the track width) from each `AudioBuffer.getChannelData(0)` and draws them to a lightweight `<canvas>` per row. Clicking anywhere on any waveform seeks the master transport to that timestamp. |
 | **Memory ceiling guard** | Decoding six 5-minute 44.1 kHz 32-bit float stereo buffers into RAM takes $\approx 6 \times 5 \times 60 \times 44100 \times 2 \times 4\text{ bytes} \approx 635\text{ MB}$ — completely fine on desktop. For tracks over 10 minutes, downmix waveform peak analysis and dispose buffers immediately (`audioBuffer = null`) when switching jobs so RAM never accumulates across songs. |
 
+> **As built (2026-11-16):**
+> - **Playback session guard on `onended`:** `MultiStemAudioEngine` increments a `playbackSessionId`
+>   counter whenever sources are stopped or re-seeded during `pause()`/`seek()` so asynchronous
+>   `AudioBufferSourceNode.onended` callbacks from superseded sources never reset the transport
+>   when scrubbing or looping.
+> - **HiDPI `<canvas>` waveforms & pointer scrubbing:** `StemWaveformCanvas` observes container size
+>   via `ResizeObserver`, scales canvas backing bitmaps by `window.devicePixelRatio`, caches
+>   `1,200`-bucket min/max `Float32Array` peaks once on decode, and supports click-and-drag pointer
+>   capture scrubbing across any stem row.
+
 ### 6.4 (D) Stem Export & Custom Mixdown — Phase 2
 
 Clicking **Export** offers two distinct modes so you don't need an external DAW just to bounce a
@@ -541,6 +552,12 @@ backing track:
      - **MP3 (`320 kbps` CBR)** — small, ready for phone/sharing
      - **WAV (`16-bit` or `24-bit` PCM)** — lossless for editing
      - **FLAC** — lossless compressed
+
+> **As built (2026-11-16):**
+> - **Unified export modes in `POST /export`:** `ExportRequest` accepts `mode`
+>   (`custom_mix`, `single_stem`, `all_stems_folder`, `all_stems_zip`) alongside `stems: [{ id, volume, muted, soloed }]`
+>   so custom mixes preserve exact Solo/Mute/fader logic and batch `.zip` exports stage temporary
+>   encoded stems alongside `target_path` (avoiding `C:` temp usage).
 
 ### 6.5 (E) Job History & Cache Management — Phase 3
 
@@ -713,4 +730,4 @@ All initial architecture and UX decisions below are resolved; Phase 0 is cleared
 
 ---
 
-*End of document. Phase 1 complete and verified (2026-11-16); Phase 2 cleared to start.*
+*End of document. Phases 0–2 complete and verified (2026-11-16); Phase 3 cleared to start.*

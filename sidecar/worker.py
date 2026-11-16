@@ -20,7 +20,13 @@ from uuid import uuid4
 
 import torch
 
-from ffmpeg_utils import ensure_ffmpeg_in_path, normalize_to_wav, probe_audio
+from ffmpeg_utils import (
+    ensure_ffmpeg_in_path,
+    export_all_stems_archive,
+    export_audio_mix,
+    normalize_to_wav,
+    probe_audio,
+)
 
 # Ensure pydub/audio-separator sees FFmpeg before importing Separator.
 ensure_ffmpeg_in_path()
@@ -355,6 +361,59 @@ def delete_all_jobs() -> dict[str, Any]:
         if entry.is_dir():
             shutil.rmtree(entry, ignore_errors=True)
     return {"total_cache_bytes": 0}
+
+
+def export_job(
+    job_id: str,
+    target_path: str,
+    fmt: str,
+    stems_state: list[dict[str, Any]],
+    mode: str = "custom_mix",
+) -> dict[str, Any]:
+    """Render a custom mixdown, single stem, or all-stems archive for a completed job."""
+    manifest = get_job_manifest(job_id)
+    if manifest is None:
+        raise FileNotFoundError(f"Job manifest not found: {job_id}")
+
+    manifest_stems: list[dict[str, Any]] = manifest.get("stems", [])
+    if mode == "all_stems_folder":
+        return export_all_stems_archive(
+            stems=manifest_stems,
+            source_name=manifest.get("source_name", job_id),
+            target_path=target_path,
+            fmt=fmt,
+            as_zip=False,
+        )
+    if mode == "all_stems_zip":
+        return export_all_stems_archive(
+            stems=manifest_stems,
+            source_name=manifest.get("source_name", job_id),
+            target_path=target_path,
+            fmt=fmt,
+            as_zip=True,
+        )
+
+    stem_path_by_id = {s["id"]: Path(s["path"]) for s in manifest_stems}
+    any_soloed = any(bool(item.get("soloed", False)) for item in stems_state)
+
+    active_weights: list[tuple[Path, float]] = []
+    for item in stems_state:
+        stem_id = item["id"]
+        if stem_id not in stem_path_by_id:
+            raise ValueError(f"Unknown stem id '{stem_id}' for job '{job_id}'.")
+
+        muted = bool(item.get("muted", False))
+        soloed = bool(item.get("soloed", False))
+        volume = float(item.get("volume", 1.0))
+
+        is_audible = (not muted) and ((not any_soloed) or soloed) and volume > 0.0
+        if is_audible:
+            active_weights.append((stem_path_by_id[stem_id], min(1.5, volume)))
+
+    if not active_weights:
+        raise ValueError("All stems are muted or at 0% volume.")
+
+    return export_audio_mix(active_weights, target_path, fmt)
 
 
 def _rename_outputs_to_canonical(job_dir: Path, expected_stem_ids: list[str]) -> list[dict[str, str]]:

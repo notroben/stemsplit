@@ -59,6 +59,29 @@ export interface SeparationEvent {
   job_id?: string;
 }
 
+export type ExportFormat = "mp3" | "wav" | "flac";
+export type ExportMode = "custom_mix" | "single_stem" | "all_stems_folder" | "all_stems_zip";
+
+export interface ExportStemInput {
+  id: string;
+  volume: number;
+  muted: boolean;
+  soloed?: boolean;
+}
+
+export interface ExportRequestPayload {
+  job_id: string;
+  target_path: string;
+  format: ExportFormat;
+  stems: ExportStemInput[];
+  mode: ExportMode;
+}
+
+export interface ExportResponse {
+  saved_path: string;
+  bytes: number;
+}
+
 const FALLBACK_SIDECAR_URL = "http://127.0.0.1:18420";
 const TERMINAL_STAGES: ReadonlySet<SeparationStage> = new Set([
   "completed",
@@ -192,4 +215,20 @@ export function subscribeToJobEvents(
 
 export async function openJobFolder(pathInJobDir: string): Promise<void> {
   await invoke("open_folder", { path: pathInJobDir });
+}
+
+export async function exportMix(
+  payload: ExportRequestPayload,
+  baseUrl?: string
+): Promise<ExportResponse> {
+  const url = baseUrl ?? (await getSidecarUrl());
+  const response = await fetch(`${url}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorDetail(response, "Export failed"));
+  }
+  return response.json() as Promise<ExportResponse>;
 }

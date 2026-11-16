@@ -10,8 +10,8 @@ Split any local audio or video file into isolated stems (`Vocals`, `Instrumental
 
 - **100% Local GPU Execution:** Runs state-of-the-art open-source weights (`BS-RoFormer` and Meta `HTDemucs`) on local NVIDIA CUDA (4 GB+ VRAM safe defaults via FP16 autocast), Apple Silicon MPS, or CPU fallback.
 - **Zero-Copy Audio Transport:** Stems are written directly to `~/.stemsplit/jobs/<job_id>/*.wav` and read by the UI via Tauri's `asset://` protocol — never base64-encoded over JSON.
-- **Sample-Accurate DAW Mixer *(Phase 2)*:** Shared `AudioContext` transport with click-free `GainNode` ramping for Solo (`S`), Mute (`M`), per-stem faders, `<canvas>` waveform seeking, and phase-locked **A/B Original** comparison.
-- **Custom Mixdown & Stem Export *(Phase 2)*:** Save individual stems or bounce your current mixer state (e.g., *"everything except drums"*) to `.mp3` (`320 kbps`), `.wav`, or `.flac` via FFmpeg.
+- **Sample-Accurate DAW Mixer:** Shared `AudioContext` transport with click-free `GainNode` ramping for Solo (`S`), Mute (`M`), per-stem faders, `<canvas>` waveform seeking, and phase-locked **A/B Original** comparison.
+- **Custom Mixdown & Stem Export:** Save individual stems, batch-export all stems to a folder or `.zip`, or bounce your current mixer state (e.g., *"everything except drums"*) to `.mp3` (`320 kbps`), `.wav`, or `.flac` via FFmpeg.
 - **Clean Process Lifecycle:** Closing the desktop window terminates the entire Python sidecar process tree immediately (`taskkill /F /T` on Windows plus a `--parent-pid` watchdog thread) so VRAM never stays locked.
 
 ---
@@ -101,9 +101,9 @@ You can also run and probe the FastAPI backend independently of Tauri:
 | Phase | Scope | Status |
 |---|---|---|
 | **Phase 0 — Foundation** | Python 3.11 CUDA venv, FFmpeg check, FastAPI `/health` + `/models`, Tauri v2 spawn & tree-kill lifecycle | ✅ Complete & Verified |
-| **Phase 1 — Separation Core** | Drag-and-drop ingest, `ffprobe` pre-flight, `original.wav` normalization, `Separator` pipeline & SSE progress | ⏳ Next |
-| **Phase 2 — DAW Mixer & Export** | Synchronized Web Audio multi-track player, `<canvas>` waveforms, Solo/Mute/A-B Original, FFmpeg export | Planned |
-| **Phase 3 — History & Cache** | Collapsible history drawer, instant job reload, cache usage indicator & purge | Planned |
+| **Phase 1 — Separation Core** | Drag-and-drop ingest, `ffprobe` pre-flight, `original.wav` normalization, `Separator` pipeline & SSE progress | ✅ Complete & Verified |
+| **Phase 2 — DAW Mixer & Export** | Synchronized Web Audio multi-track player, `<canvas>` waveforms, Solo/Mute/A-B Original, FFmpeg export | ✅ Complete & Verified |
+| **Phase 3 — History & Cache** | Collapsible history drawer, instant job reload, cache usage indicator & purge | ⏳ Next |
 | **Phase 4 — LAN Mobile Mode** | Optional Wi-Fi `0.0.0.0` listener + QR code for mobile upload/download | Optional |
 
 ---
