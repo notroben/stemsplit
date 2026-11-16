@@ -1,14 +1,39 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, AudioWaveform, RefreshCw, UploadCloud } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
+  AudioWaveform,
+  CheckCircle2,
+  FolderOpen,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
+import { DropZone, formatDuration } from "./components/DropZone";
+import { ProgressPanel } from "./components/ProgressPanel";
+import {
+  cancelSeparation,
   getHealth,
+  getJobManifest,
   getModels,
   getSidecarUrl,
+  openJobFolder,
+  startSeparation,
+  subscribeToJobEvents,
   type HealthResponse,
+  type JobManifest,
   type ModelPreset,
+  type SeparationEvent,
 } from "./lib/sidecar";
 
 type ConnectionState = "connecting" | "online" | "offline";
+type ViewState = "idle" | "processing" | "completed";
+
+interface ActiveJobInfo {
+  jobId: string;
+  filePath: string;
+  presetId: string;
+  sourceName: string;
+  presetLabel: string;
+}
 
 const MAX_BOOT_ATTEMPTS = 15;
 const BOOT_RETRY_MS = 400;
@@ -19,11 +44,25 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [models, setModels] = useState<ModelPreset[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<string>("roformer_2stem");
-  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  const [view, setView] = useState<ViewState>("idle");
+  const [activeJob, setActiveJob] = useState<ActiveJobInfo | null>(null);
+  const [jobEvent, setJobEvent] = useState<SeparationEvent | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [completedManifest, setCompletedManifest] = useState<JobManifest | null>(null);
+  const [jobNotice, setJobNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null);
+  const [lastAttempt, setLastAttempt] = useState<{
+    filePath: string;
+    presetId: string;
+    sourceName: string;
+  } | null>(null);
+
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const probeSidecar = useCallback(async (withBootRetry: boolean) => {
     setConnection("connecting");
-    setErrorDetail(null);
+    setConnectionError(null);
 
     const url = await getSidecarUrl();
     setSidecarUrl(url);
@@ -31,10 +70,7 @@ export default function App() {
     const attempts = withBootRetry ? MAX_BOOT_ATTEMPTS : 1;
     for (let i = 0; i < attempts; i += 1) {
       try {
-        const [healthData, modelList] = await Promise.all([
-          getHealth(url),
-          getModels(url),
-        ]);
+        const [healthData, modelList] = await Promise.all([getHealth(url), getModels(url)]);
         setHealth(healthData);
         setModels(modelList);
         setConnection("online");
@@ -42,7 +78,7 @@ export default function App() {
       } catch (err) {
         if (i === attempts - 1) {
           setConnection("offline");
-          setErrorDetail(err instanceof Error ? err.message : "Sidecar unreachable");
+          setConnectionError(err instanceof Error ? err.message : "Sidecar unreachable");
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, BOOT_RETRY_MS));
@@ -52,7 +88,117 @@ export default function App() {
 
   useEffect(() => {
     void probeSidecar(true);
+    return () => {
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
+    };
   }, [probeSidecar]);
+
+  const handleStartSeparation = useCallback(
+    async (filePath: string, presetId: string, sourceName: string) => {
+      const url = sidecarUrl || (await getSidecarUrl());
+      const presetLabel = models.find((m) => m.id === presetId)?.label ?? presetId;
+
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
+
+      setJobNotice(null);
+      setCompletedManifest(null);
+      setCancelling(false);
+      setLastAttempt({ filePath, presetId, sourceName });
+      setJobEvent({ stage: "queued", percent: 0, message: "Queued for separation…" });
+      setView("processing");
+
+      try {
+        const { job_id } = await startSeparation(filePath, presetId, url);
+        setActiveJob({ jobId: job_id, filePath, presetId, sourceName, presetLabel });
+
+        unsubscribeRef.current = subscribeToJobEvents(
+          job_id,
+          url,
+          (event) => {
+            setJobEvent(event);
+
+            if (event.stage === "completed") {
+              unsubscribeRef.current = null;
+              void Promise.all([getJobManifest(job_id, url), getModels(url)])
+                .then(([manifest, updatedModels]) => {
+                  setModels(updatedModels);
+                  setCompletedManifest(manifest);
+                  setActiveJob(null);
+                  setView("completed");
+                })
+                .catch((err) => {
+                  setActiveJob(null);
+                  setView("idle");
+                  setJobNotice({
+                    kind: "error",
+                    text: err instanceof Error ? err.message : "Failed to load completed job manifest.",
+                  });
+                });
+            } else if (event.stage === "cancelled") {
+              unsubscribeRef.current = null;
+              setActiveJob(null);
+              setCancelling(false);
+              setView("idle");
+              setJobNotice({ kind: "info", text: "Separation cancelled and partial files cleaned up." });
+            } else if (event.stage === "failed") {
+              unsubscribeRef.current = null;
+              setActiveJob(null);
+              setCancelling(false);
+              setView("idle");
+              setJobNotice({ kind: "error", text: event.message || "Separation failed." });
+            }
+          },
+          (streamErr) => {
+            unsubscribeRef.current = null;
+            setActiveJob(null);
+            setCancelling(false);
+            setView("idle");
+            setJobNotice({ kind: "error", text: streamErr });
+          }
+        );
+      } catch (err) {
+        setActiveJob(null);
+        setView("idle");
+        setJobNotice({
+          kind: "error",
+          text: err instanceof Error ? err.message : "Could not start separation job.",
+        });
+      }
+    },
+    [models, sidecarUrl]
+  );
+
+  const handleCancelJob = useCallback(async () => {
+    if (!activeJob || cancelling) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      await cancelSeparation(activeJob.jobId, sidecarUrl || undefined);
+    } catch (err) {
+      setCancelling(false);
+      setJobNotice({
+        kind: "error",
+        text: err instanceof Error ? err.message : "Failed to send cancel signal.",
+      });
+    }
+  }, [activeJob, cancelling, sidecarUrl]);
+
+  const handleOpenFolder = useCallback(async () => {
+    if (!completedManifest) {
+      return;
+    }
+    try {
+      await openJobFolder(completedManifest.original_path);
+    } catch (err) {
+      setJobNotice({
+        kind: "error",
+        text: err instanceof Error ? err.message : "Failed to open output folder.",
+      });
+    }
+  }, [completedManifest]);
 
   const renderHardwareBadge = () => {
     if (connection === "connecting") {
@@ -66,7 +212,7 @@ export default function App() {
 
     if (connection === "offline" || !health) {
       return (
-        <div className="hardware-badge" title={errorDetail ?? "Sidecar offline"}>
+        <div className="hardware-badge" title={connectionError ?? "Sidecar offline"}>
           <span className="hardware-dot error" />
           <span>Sidecar Offline</span>
         </div>
@@ -74,9 +220,7 @@ export default function App() {
     }
 
     if (health.device === "cuda") {
-      const label = health.gpu_name
-        ? `GPU: ${health.gpu_name} (CUDA)`
-        : "GPU Mode (CUDA)";
+      const label = health.gpu_name ? `GPU: ${health.gpu_name} (CUDA)` : "GPU Mode (CUDA)";
       return (
         <div className="hardware-badge" title={label}>
           <span className="hardware-dot ok" />
@@ -95,12 +239,14 @@ export default function App() {
     }
 
     return (
-      <div className="hardware-badge" title="Running on CPU">
+      <div className="hardware-badge" title="Running on CPU — separation may take a few minutes">
         <span className="hardware-dot warn" />
         <span>CPU Mode (Slower)</span>
       </div>
     );
   };
+
+  const pipelineDisabled = connection !== "online" || !health?.ffmpeg_ok;
 
   return (
     <div className="studio-shell">
@@ -121,7 +267,7 @@ export default function App() {
             type="button"
             className="studio-btn"
             onClick={() => void probeSidecar(false)}
-            disabled={connection === "connecting"}
+            disabled={connection === "connecting" || view === "processing"}
           >
             <RefreshCw size={13} />
             <span>Check</span>
@@ -142,11 +288,7 @@ export default function App() {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              className="studio-btn"
-              onClick={() => void probeSidecar(false)}
-            >
+            <button type="button" className="studio-btn" onClick={() => void probeSidecar(false)}>
               Cek Lagi
             </button>
           </section>
@@ -159,62 +301,159 @@ export default function App() {
               <div>
                 <p className="preflight-banner-title">Python sidecar is offline</p>
                 <p className="preflight-banner-text">
-                  {errorDetail ?? "Unable to reach the local inference server."}
+                  {connectionError ?? "Unable to reach the local inference server."}
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              className="studio-btn"
-              onClick={() => void probeSidecar(false)}
-            >
+            <button type="button" className="studio-btn" onClick={() => void probeSidecar(false)}>
               Retry
             </button>
           </section>
         )}
 
-        <section className="workspace-card">
-          <div className="dropzone-shell">
-            <div className="dropzone-icon">
-              <UploadCloud size={22} />
+        {connection === "online" && health?.device === "cpu" && view === "idle" && (
+          <section className="preflight-banner warn-banner" role="status">
+            <div className="preflight-banner-body">
+              <AlertTriangle size={18} color="#f59e0b" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p className="preflight-banner-title">Running on CPU</p>
+                <p className="preflight-banner-text">
+                  No CUDA/MPS GPU detected — stem separation may take a few minutes per track.
+                </p>
+              </div>
             </div>
-            <h1 className="dropzone-title">Drop an audio or video file here</h1>
-            <p className="dropzone-subtitle">
-              Phase 0 environment ready · Audio ingest &amp; separation pipeline activates in Phase 1
-            </p>
-          </div>
+          </section>
+        )}
 
-          <div>
-            <h2 className="presets-section-title">Curated Separation Models</h2>
-            <div className="preset-grid">
-              {models.map((preset) => (
+        {jobNotice && view === "idle" && (
+          <section
+            className={`preflight-banner ${jobNotice.kind === "info" ? "info-banner" : ""}`}
+            role="alert"
+          >
+            <div className="preflight-banner-body">
+              <AlertTriangle
+                size={18}
+                color={jobNotice.kind === "info" ? "#2dd4bf" : "#f43f5e"}
+                style={{ flexShrink: 0, marginTop: 2 }}
+              />
+              <div>
+                <p className="preflight-banner-title">
+                  {jobNotice.kind === "info" ? "Separation cancelled" : "Separation error"}
+                </p>
+                <p className="preflight-banner-text">{jobNotice.text}</p>
+              </div>
+            </div>
+            <div className="banner-actions">
+              {jobNotice.kind === "error" && lastAttempt && !pipelineDisabled && (
                 <button
-                  key={preset.id}
                   type="button"
-                  className={`preset-card ${selectedPreset === preset.id ? "selected" : ""}`}
-                  onClick={() => setSelectedPreset(preset.id)}
+                  className="studio-btn"
+                  onClick={() =>
+                    void handleStartSeparation(
+                      lastAttempt.filePath,
+                      lastAttempt.presetId,
+                      lastAttempt.sourceName
+                    )
+                  }
                 >
-                  <div className="preset-card-top">
-                    <span className="preset-stems-pill">{preset.stems_count} Stems</span>
-                    <span className="preset-size-text">~{preset.size_mb} MB</span>
-                  </div>
-                  <div className="preset-label">{preset.label}</div>
-                  <div className={`preset-cache-state ${preset.is_downloaded ? "cached" : ""}`}>
-                    {preset.is_downloaded ? "Cached on disk" : "Downloads on first run"}
-                  </div>
+                  Retry
                 </button>
-              ))}
+              )}
+              <button
+                type="button"
+                className="studio-btn"
+                onClick={() => setJobNotice(null)}
+              >
+                Dismiss
+              </button>
             </div>
-          </div>
+          </section>
+        )}
 
-          <div className="phase-footer-note">
-            <span>Sidecar: {sidecarUrl || "Resolving…"}</span>
-            <span>
-              {health?.vram_mb ? `VRAM: ${health.vram_mb} MiB` : "VRAM: N/A"} ·{" "}
-              {health?.ffmpeg_ok ? "FFmpeg Ready" : "FFmpeg Pending"}
-            </span>
-          </div>
-        </section>
+        {view === "idle" && (
+          <DropZone
+            sidecarUrl={sidecarUrl}
+            models={models}
+            selectedPreset={selectedPreset}
+            disabled={pipelineDisabled}
+            onSelectPreset={setSelectedPreset}
+            onStartSeparation={(filePath, presetId, sourceName) =>
+              void handleStartSeparation(filePath, presetId, sourceName)
+            }
+          />
+        )}
+
+        {view === "processing" && activeJob && (
+          <ProgressPanel
+            sourceName={activeJob.sourceName}
+            presetLabel={activeJob.presetLabel}
+            event={jobEvent}
+            cancelling={cancelling}
+            onCancel={() => void handleCancelJob()}
+          />
+        )}
+
+        {view === "completed" && completedManifest && (
+          <section className="workspace-card">
+            <div className="completed-header">
+              <div className="completed-title-group">
+                <div className="completed-icon">
+                  <CheckCircle2 size={22} />
+                </div>
+                <div>
+                  <h1 className="completed-song-name" title={completedManifest.source_name}>
+                    {completedManifest.source_name}
+                  </h1>
+                  <p className="completed-meta">
+                    <span>{formatDuration(completedManifest.duration_sec)}</span>
+                    <span>·</span>
+                    <span>{completedManifest.stems.length} Stems</span>
+                    <span>·</span>
+                    <span>{completedManifest.sample_rate} Hz WAV</span>
+                  </p>
+                </div>
+              </div>
+              <div className="completed-actions">
+                <button
+                  type="button"
+                  className="primary-action-btn"
+                  onClick={() => void handleOpenFolder()}
+                >
+                  <FolderOpen size={15} />
+                  <span>Open Output Folder</span>
+                </button>
+                <button
+                  type="button"
+                  className="studio-btn"
+                  onClick={() => {
+                    setCompletedManifest(null);
+                    setView("idle");
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  <span>Split Another</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="stem-output-list">
+              {completedManifest.stems.map((stem) => {
+                const fileName = stem.path.split("/").pop() ?? stem.path;
+                return (
+                  <div key={stem.id} className="stem-output-row">
+                    <div className="stem-output-left">
+                      <span className="stem-color-dot" style={{ backgroundColor: stem.color }} />
+                      <span className="stem-output-label">{stem.label}</span>
+                    </div>
+                    <span className="stem-output-file" title={stem.path}>
+                      {fileName}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
     </div>
   );

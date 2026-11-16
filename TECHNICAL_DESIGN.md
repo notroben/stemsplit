@@ -58,9 +58,11 @@
 
 ## 0. Status
 
-**Status:** ✅ **Phase 0 complete & verified (2026-11-16) · Phase 1 cleared to start.** Python
-3.11 CUDA sidecar (`torch 2.5.1+cu121`, `audio-separator 0.48.0`, FFmpeg 9.0.2) and Tauri v2
-desktop shell (`stemsplit.exe` + dynamic port/process-tree lifecycle) are built and verified.
+**Status:** ✅ **Phase 0 & Phase 1 complete and verified (2026-11-16) · Phase 2 cleared to start.**
+Python 3.11 CUDA sidecar (`torch 2.5.1+cu121`, `audio-separator 0.48.0`, FFmpeg 9.0.2), Tauri v2
+desktop shell (`stemsplit.exe` + `open_folder`), drag-and-drop / `ffprobe` ingest (`POST /probe`),
+`BS-RoFormer` / `HTDemucs` separation pipeline (`POST /separate`), and live `TqdmToSSE` progress
+streaming (`GET /jobs/{id}/events`) are built and verified.
 
 - **Phases 0–2 are the target deliverable** — a complete, self-contained desktop application that
   splits any local song into isolated stems, lets the user solo/mute/mix them in real time, and
@@ -473,6 +475,22 @@ The top bar also displays a hardware badge (`🟢 GPU: RTX 4060 (CUDA)` or `🟡
    running `gc.collect()` + `torch.cuda.empty_cache()`, and cleaning up partial files without
    restarting the FastAPI server.
 
+> **As built (2026-11-16):**
+> - **Pre-flight probe endpoint:** Added `POST /probe` in `sidecar/server.py` so `DropZone.tsx`
+>   validates media streams and reads duration/sample rate/channels via `ffprobe` immediately on
+>   drop or file selection (triggering the `> 15 min` confirmation check before queueing).
+> - **Model instance `output_dir` synchronization:** `audio-separator` 0.48.0 copies `output_dir`
+>   onto `separator.model_instance` during `load_model()`. When reusing the loaded `Separator`
+>   across consecutive jobs, `ModelManager.prepare_separator()` updates both `separator.output_dir`
+>   and `separator.model_instance.output_dir` to the new `job_dir`.
+> - **`TqdmToSSE` & Windows encoding safety:** `TqdmToSSE` wraps `sys.stderr` with `encoding="utf-8"`
+>   and `isatty() -> True`, coalescing percentage updates and scaling across `total_passes = 4`
+>   for `htdemucs_ft` (`BagOfModels`) without forwarding `tqdm`'s Unicode block characters to
+>   `cp1252` Windows consoles.
+> - **Observed weight size & CUDA behavior:** `model_bs_roformer_ep_317_sdr_12.9755.ckpt` weighs
+>   `609.7 MB` on disk and runs cleanly with `use_autocast=True` and `use_soundfile=True` on the
+>   RTX 3050 Laptop GPU (`4095 MiB` VRAM).
+
 ### 6.3 (C) Multi-Track DAW Mixer & Synchronized Playback — Phase 2
 
 Once separation finishes, the screen transitions into the **Mixer View** — modeled directly on
@@ -695,4 +713,4 @@ All initial architecture and UX decisions below are resolved; Phase 0 is cleared
 
 ---
 
-*End of document. Phase 0 complete and verified (2026-11-16); Phase 1 cleared to start.*
+*End of document. Phase 1 complete and verified (2026-11-16); Phase 2 cleared to start.*
