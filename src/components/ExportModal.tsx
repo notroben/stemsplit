@@ -18,6 +18,27 @@ interface ExportModalProps {
 }
 
 type ExportTab = "mix" | "stems";
+type ExportAction =
+  | { kind: "mix" }
+  | { kind: "single"; stemId: string }
+  | { kind: "folder" }
+  | { kind: "zip" }
+  | null;
+
+interface StackedLabelProps {
+  active: boolean;
+  idleText: string;
+  activeText: string;
+}
+
+function StackedLabel({ active, idleText, activeText }: StackedLabelProps) {
+  return (
+    <span className="stacked-label-cell">
+      <span className={active ? "label-hidden" : "label-visible"}>{idleText}</span>
+      <span className={active ? "label-visible" : "label-hidden"}>{activeText}</span>
+    </span>
+  );
+}
 
 const FORMAT_OPTIONS: { id: ExportFormat; label: string; detail: string }[] = [
   { id: "mp3", label: "MP3", detail: "320 kbps CBR" },
@@ -44,9 +65,11 @@ export function ExportModal({
 }: ExportModalProps) {
   const [tab, setTab] = useState<ExportTab>("mix");
   const [format, setFormat] = useState<ExportFormat>("mp3");
-  const [exporting, setExporting] = useState(false);
+  const [exportAction, setExportAction] = useState<ExportAction>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<ExportResponse | null>(null);
+
+  const exporting = exportAction !== null;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -84,7 +107,7 @@ export function ExportModal({
       });
       if (!targetPath) return;
 
-      setExporting(true);
+      setExportAction({ kind: "mix" });
       const res = await exportMix(
         {
           job_id: manifest.id,
@@ -107,7 +130,7 @@ export function ExportModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to export custom mix.");
     } finally {
-      setExporting(false);
+      setExportAction(null);
     }
   };
 
@@ -124,7 +147,7 @@ export function ExportModal({
       });
       if (!targetPath) return;
 
-      setExporting(true);
+      setExportAction({ kind: "single", stemId });
       const res = await exportMix(
         {
           job_id: manifest.id,
@@ -139,7 +162,7 @@ export function ExportModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to export ${label}.`);
     } finally {
-      setExporting(false);
+      setExportAction(null);
     }
   };
 
@@ -163,7 +186,7 @@ export function ExportModal({
 
       if (typeof targetPath !== "string" || !targetPath) return;
 
-      setExporting(true);
+      setExportAction({ kind: asZip ? "zip" : "folder" });
       const res = await exportMix(
         {
           job_id: manifest.id,
@@ -178,7 +201,16 @@ export function ExportModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to export stems.");
     } finally {
-      setExporting(false);
+      setExportAction(null);
+    }
+  };
+
+  const handleShowFolder = async (savedPath: string) => {
+    setError(null);
+    try {
+      await openJobFolder(savedPath);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open destination folder.");
     }
   };
 
@@ -292,7 +324,11 @@ export function ExportModal({
                 onClick={() => void runCustomMixExport()}
               >
                 <Download size={15} />
-                <span>{exporting ? "Rendering Mix…" : `Export Mix (.${format})`}</span>
+                <StackedLabel
+                  active={exportAction?.kind === "mix"}
+                  idleText={`Export Mix (.${format})`}
+                  activeText="Rendering Mix…"
+                />
               </button>
             </div>
           </div>
@@ -312,7 +348,11 @@ export function ExportModal({
                     onClick={() => void runSingleStemExport(stem.id, stem.label)}
                   >
                     <Download size={13} />
-                    <span>Save .{format}</span>
+                    <StackedLabel
+                      active={exportAction?.kind === "single" && exportAction.stemId === stem.id}
+                      idleText={`Save .${format}`}
+                      activeText="Saving…"
+                    />
                   </button>
                 </div>
               ))}
@@ -326,7 +366,11 @@ export function ExportModal({
                 onClick={() => void runBatchExport(false)}
               >
                 <FolderOpen size={14} />
-                <span>Export All to Folder…</span>
+                <StackedLabel
+                  active={exportAction?.kind === "folder"}
+                  idleText="Export All to Folder…"
+                  activeText="Exporting Stems…"
+                />
               </button>
               <button
                 type="button"
@@ -335,7 +379,11 @@ export function ExportModal({
                 onClick={() => void runBatchExport(true)}
               >
                 <FileArchive size={15} />
-                <span>{exporting ? "Packaging ZIP…" : "Export All as ZIP…"}</span>
+                <StackedLabel
+                  active={exportAction?.kind === "zip"}
+                  idleText="Export All as ZIP…"
+                  activeText="Packaging ZIP…"
+                />
               </button>
             </div>
           </div>
@@ -363,7 +411,7 @@ export function ExportModal({
             <button
               type="button"
               className="studio-btn"
-              onClick={() => void openJobFolder(saved.saved_path)}
+              onClick={() => void handleShowFolder(saved.saved_path)}
             >
               <FolderOpen size={13} />
               <span>Show Folder</span>

@@ -8,6 +8,7 @@ target/
 src-tauri/target/
 src-tauri/gen/schemas/
 src-tauri/.cargo/
+/StemSplit.exe
 
 # Python / Sidecar
 .venv/

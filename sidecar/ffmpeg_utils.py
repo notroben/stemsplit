@@ -190,7 +190,7 @@ def export_audio_mix(
         raise RuntimeError(f"FFmpeg did not produce a valid output file at {dst}")
 
     return {
-        "saved_path": dst.resolve().as_posix(),
+        "saved_path": str(dst.resolve()),
         "bytes": dst.stat().st_size,
     }
 
@@ -232,7 +232,7 @@ def export_all_stems_archive(
                     zf.write(item, arcname=item.name)
 
         return {
-            "saved_path": dst.resolve().as_posix(),
+            "saved_path": str(dst.resolve()),
             "bytes": dst.stat().st_size,
         }
 
@@ -248,6 +248,6 @@ def export_all_stems_archive(
         total_bytes += out_file.stat().st_size
 
     return {
-        "saved_path": dst.resolve().as_posix(),
+        "saved_path": str(dst.resolve()),
         "bytes": total_bytes,
     }

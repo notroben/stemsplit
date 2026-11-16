@@ -61,7 +61,7 @@ export function LanModal({
             </div>
             <div>
               <h2 id="lan-modal-title" className="modal-title">
-                Mode HP (Wi-Fi Companion)
+                Mobile Companion (Wi-Fi)
               </h2>
               <p className="modal-subtitle">
                 Upload, split on PC GPU, and download stems from your phone
@@ -130,7 +130,7 @@ export function LanModal({
               onClick={() => onToggle(false)}
             >
               <WifiOff size={14} />
-              <span>{busy ? "Stopping…" : "Turn Off Mode HP"}</span>
+              <span>{busy ? "Stopping…" : "Turn Off Mobile Companion"}</span>
             </button>
           ) : (
             <button
@@ -140,7 +140,7 @@ export function LanModal({
               onClick={() => onToggle(true)}
             >
               <Wifi size={14} />
-              <span>{busy ? "Starting…" : "Enable Mode HP (Wi-Fi)"}</span>
+              <span>{busy ? "Starting…" : "Enable Mobile Companion (Wi-Fi)"}</span>
             </button>
           )}
         </div>

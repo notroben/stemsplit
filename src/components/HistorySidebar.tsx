@@ -164,7 +164,7 @@ export function HistorySidebar({
               disabled={disabled || busy || jobs.length === 0}
               onClick={() => void handleConfirmPurge()}
             >
-              Yakin Hapus Semua?
+              Confirm Clear All?
             </button>
             <button
               type="button"
@@ -172,7 +172,7 @@ export function HistorySidebar({
               disabled={busy}
               onClick={() => setConfirmPurge(false)}
             >
-              Batal
+              Cancel
             </button>
           </div>
         ) : (
@@ -183,7 +183,7 @@ export function HistorySidebar({
             onClick={() => setConfirmPurge(true)}
           >
             <Trash2 size={13} />
-            <span>Bersihkan Semua Cache</span>
+            <span>Clear All Cache</span>
           </button>
         )}
       </div>

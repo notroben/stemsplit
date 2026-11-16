@@ -560,6 +560,12 @@ backing track:
 >   (`custom_mix`, `single_stem`, `all_stems_folder`, `all_stems_zip`) alongside `stems: [{ id, volume, muted, soloed }]`
 >   so custom mixes preserve exact Solo/Mute/fader logic and batch `.zip` exports stage temporary
 >   encoded stems alongside `target_path` (avoiding `C:` temp usage).
+> - **Windows Explorer & action-specific export labels:** `export_audio_mix` and
+>   `export_all_stems_archive` return native OS `saved_path` strings (`str(dst.resolve())`), Rust's
+>   `open_folder` normalizes Windows paths (`/` to `\`, stripping `\\?\`) before invoking
+>   `explorer.exe` so Explorer opens the exact destination folder instead of falling back to
+>   `Documents`, and `ExportModal` tracks an `exportAction` union (`mix` / `single` / `folder` /
+>   `zip`) with stacked label cells so only the active button shows progress text.
 
 ### 6.5 (E) Job History & Cache Management — Phase 3
 

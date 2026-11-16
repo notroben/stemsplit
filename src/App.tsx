@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, AudioWaveform, History, RefreshCw, Smartphone } from "lucide-react";
+import { AlertTriangle, History, RefreshCw, Smartphone } from "lucide-react";
 import { DropZone } from "./components/DropZone";
 import { HistorySidebar } from "./components/HistorySidebar";
 import { LanModal } from "./components/LanModal";
@@ -351,7 +351,12 @@ export default function App() {
       <header className="studio-header">
         <div className="studio-brand">
           <div className="studio-brand-mark">
-            <AudioWaveform size={18} />
+            <svg width="24" height="24" viewBox="0 0 128 128" fill="currentColor" aria-hidden="true">
+              <rect x="26" y="42" width="13" height="45" />
+              <rect x="48" y="20" width="13" height="89" />
+              <rect x="70" y="32" width="12" height="65" />
+              <rect x="91" y="48" width="13" height="33" />
+            </svg>
           </div>
           <div>
             <div className="studio-brand-title">StemSplit</div>
@@ -377,7 +382,7 @@ export default function App() {
             title="LAN Mobile Companion Mode (Wi-Fi QR)"
           >
             <Smartphone size={14} />
-            <span>{lanStatus?.enabled ? "Mode HP: ON" : "Mode HP (Wi-Fi)"}</span>
+            <span>{lanStatus?.enabled ? "Mobile: ON" : "Mobile (Wi-Fi)"}</span>
           </button>
           {renderHardwareBadge()}
           <button
@@ -419,7 +424,7 @@ export default function App() {
                 </div>
               </div>
               <button type="button" className="studio-btn" onClick={() => void probeSidecar(false)}>
-                Cek Lagi
+                Check Again
               </button>
             </section>
           )}

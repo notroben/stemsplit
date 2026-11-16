@@ -19,6 +19,20 @@ fn get_sidecar_url(state: tauri::State<'_, SidecarState>) -> String {
     state.url()
 }
 
+#[cfg(target_os = "windows")]
+fn to_explorer_path(path: &std::path::Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let raw = resolved.to_string_lossy();
+    let without_prefix = if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{unc}")
+    } else if let Some(local) = raw.strip_prefix(r"\\?\") {
+        local.to_string()
+    } else {
+        raw.into_owned()
+    };
+    without_prefix.replace('/', r"\")
+}
+
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
@@ -34,8 +48,11 @@ fn open_folder(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        // Windows Explorer rejects forward slashes and \\?\ verbatim prefixes,
+        // falling back silently to the user's Documents folder.
+        let win_folder = to_explorer_path(&folder);
         Command::new("explorer.exe")
-            .arg(&folder)
+            .arg(&win_folder)
             .creation_flags(0x0800_0000)
             .spawn()
             .map_err(|e| format!("Failed to open Explorer: {e}"))?;
@@ -92,4 +109,22 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::to_explorer_path;
+    use std::path::Path;
+
+    #[test]
+    fn converts_forward_slashes_and_strips_verbatim_prefix() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let posix_like = cwd.to_string_lossy().replace('\\', "/");
+        let converted = to_explorer_path(Path::new(&posix_like));
+        assert!(!converted.contains('/'), "unexpected forward slash in {converted}");
+        assert!(!converted.starts_with(r"\\?\"), "unexpected verbatim prefix in {converted}");
+
+        let missing = to_explorer_path(Path::new("C:/Users/example/Music/my song"));
+        assert_eq!(missing, r"C:\Users\example\Music\my song");
+    }
 }
